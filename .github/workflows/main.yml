@@ -1,0 +1,68 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Tests
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    env:
+      DB_PASS: ${{ secrets.GITHUB_TOKEN }}
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+  
+      - name: Set masked outputs
+        run: echo "::add-mask::$DB_PASS"
+          
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+      
+      - name: Check Terraform Config
+        run: terraform plan
+      
+      - name: Run Terraform
+        run: terraform apply -var="db_root_password=$DB_PASS" -auto-approve
+      
+      - name: Check Web Container 
+        run: curl -s 127.0.0.1:8080 | grep -q 'My First and Lastname'
+        
+      - name: Wait for MariaDB container
+        run: |
+          i=0
+          while ! mysql -h 127.0.0.1 2>&1 | grep -q 'password'
+          do
+            if [ $i -eq 10 ]
+            then
+              echo 'Timed out waiting for MariaDB container'
+              exit 1
+            fi
+            i=$((i+1))
+            sleep 1
+          done
+  
+      - name: Check Database Container 
+        run: mysql -h 127.0.0.1 -u root -p$DB_PASS -e 'select version();'
+  
+      - name: Stop Containers 
+        run: docker stop $(docker ps -q)  
